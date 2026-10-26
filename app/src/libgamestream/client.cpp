@@ -502,6 +502,8 @@ int gs_start_app(PSERVER_DATA server, STREAM_CONFIGURATION* config, int appId,
 
     Data data;
 
+    int fps = sops && config->fps > 60 ? 60 : config->fps;
+
     if (server->currentGame == 0) {
         int channelCounnt =
             config->audioConfiguration == AUDIO_CONFIGURATION_STEREO
@@ -510,7 +512,6 @@ int gs_start_app(PSERVER_DATA server, STREAM_CONFIGURATION* config, int appId,
         int mask = config->audioConfiguration == AUDIO_CONFIGURATION_STEREO
                        ? CHANNEL_MASK_STEREO
                        : CHANNEL_MASK_51_SURROUND;
-        int fps = sops && config->fps > 60 ? 60 : config->fps;
         snprintf(url, sizeof(url),
                  "https://%s:%u/"
                  "launch?uniqueid=%s&appid=%d&mode=%dx%dx%d&additionalStates=1&"
@@ -522,8 +523,10 @@ int gs_start_app(PSERVER_DATA server, STREAM_CONFIGURATION* config, int appId,
                  gamepad_mask, gamepad_mask, LiGetLaunchUrlQueryParameters());
     } else {
         snprintf(url, sizeof(url),
-                 "https://%s:%u/resume?uniqueid=%s&rikey=%s&rikeyid=%d%s",
+                 "https://%s:%u/resume?uniqueid=%s&mode=%dx%dx%d&sops=%d&"
+                 "rikey=%s&rikeyid=%d%s",
                  server->serverInfo.address, server->httpsPort, unique_id.c_str(),
+                 config->width, config->height, fps, sops,
                  rand.hex().bytes(), rikeyid, LiGetLaunchUrlQueryParameters());
     }
 

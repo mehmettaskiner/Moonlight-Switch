@@ -87,5 +87,81 @@ int main() {
 ''')
 
 
+    def test_launch_and_resume_request_selected_mode_and_policy(self):
+        start = function('app/src/libgamestream/client.cpp', 'int gs_start_app(')
+        run_cpp(r'''
+#include <cassert>
+#include <cstdio>
+#include <cstring>
+#include <string>
+#include <vector>
+constexpr int GS_OK=0, GS_IO_ERROR=-1, GS_NOT_SUPPORTED_4K=-2, GS_FAILED=-3;
+constexpr int AUDIO_CONFIGURATION_STEREO=2, CHANNEL_COUNT_STEREO=2;
+constexpr int CHANNEL_COUNT_51_SURROUND=6, CHANNEL_MASK_STEREO=3, CHANNEL_MASK_51_SURROUND=63;
+constexpr int HTTPRequestTimeoutLong=30;
+struct Data {
+    char value[64] = "00112233445566778899aabbccddeeff00";
+    static Data random_bytes(int) { return {}; }
+    const char* bytes() const { return value; }
+    Data hex() const { return {}; }
+};
+struct STREAM_CONFIGURATION {
+    int width=1920, height=1080, fps=60, audioConfiguration=AUDIO_CONFIGURATION_STEREO;
+    char remoteInputAesKey[16];
+};
+struct SERVER_DATA {
+    bool supports4K=true; int currentGame=0; unsigned httpsPort=47984;
+    struct { const char* address="127.0.0.1"; const char* rtspSessionUrl=nullptr; } serverInfo;
+};
+using PSERVER_DATA=SERVER_DATA*;
+std::string unique_id="testclient", captured;
+int transportResult=GS_OK, xmlResult=GS_OK;
+void gs_set_error(const char*) {}
+const char* LiGetLaunchUrlQueryParameters() { return "&testExtension=1"; }
+int http_request(const char* url, Data*, int timeout) {
+    assert(timeout==HTTPRequestTimeoutLong); captured=url; return transportResult;
+}
+int xml_status(const Data&) { return xmlResult; }
+int xml_search(const Data&, const char* name, std::string* value) {
+    *value = std::string(name)=="gamesession" ? "1" : "rtsp://test";
+    return GS_OK;
+}
+namespace brls { struct Logger { static void error(const char*) {} }; }
+''' + start + r'''
+int main() {
+    for (bool resume : {false,true}) for (bool sops : {false,true}) {
+        for (int fps : {30,60,120}) for (int height : {720,1080,1440}) {
+            SERVER_DATA server; server.currentGame=resume ? 42 : 0;
+            STREAM_CONFIGURATION config;
+            config.height=height; config.width=height*16/9; config.fps=fps;
+            assert(gs_start_app(&server,&config,42,sops,true,3)==GS_OK);
+            assert(captured.find(resume ? "/resume?" : "/launch?")!=std::string::npos);
+            std::string mode="&mode="+std::to_string(config.width)+"x"+std::to_string(height)+"x"+std::to_string(sops && fps>60 ? 60 : fps);
+            assert(captured.find(mode+"&")!=std::string::npos);
+            assert(captured.find(sops ? "&sops=1&" : "&sops=0&")!=std::string::npos);
+            assert(captured.find("uniqueid=testclient&")!=std::string::npos);
+            assert(captured.find("&rikey=00112233445566778899aabbccddeeff00&rikeyid=0")!=std::string::npos);
+            assert(captured.find("&testExtension=1")!=std::string::npos);
+            if (!resume) {
+                assert(captured.find("appid=42&")!=std::string::npos);
+                assert(captured.find("&localAudioPlayMode=1&")!=std::string::npos);
+                assert(captured.find("&remoteControllersBitmap=3&gcmap=3")!=std::string::npos);
+            }
+            assert(server.currentGame==42);
+            delete[] server.serverInfo.rtspSessionUrl;
+        }
+    }
+    SERVER_DATA server; STREAM_CONFIGURATION config;
+    transportResult=GS_IO_ERROR;
+    assert(gs_start_app(&server,&config,42,true,false,0)==GS_IO_ERROR);
+    assert(server.currentGame==0);
+    transportResult=GS_OK; server.supports4K=false; config.height=2160;
+    captured.clear();
+    assert(gs_start_app(&server,&config,42,true,false,0)==GS_NOT_SUPPORTED_4K);
+    assert(captured.empty());
+}
+''')
+
+
 if __name__ == '__main__':
     unittest.main()
