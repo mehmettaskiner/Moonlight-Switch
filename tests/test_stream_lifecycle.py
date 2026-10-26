@@ -99,6 +99,48 @@ int main() {
 ''')
 
 
+    def test_connection_termination_is_queued_and_stale_events_are_ignored(self):
+        termination = function('app/src/streaming/MoonlightSession.cpp',
+                               'void MoonlightSession::connection_terminated(int error_code)')
+        run_cpp(r'''
+#include <atomic>
+#include <cassert>
+#include <functional>
+#include <vector>
+#include <cstdint>
+namespace brls {
+    std::vector<std::function<void()>> queue;
+    void sync(std::function<void()> f) { queue.push_back(f); }
+    struct Logger { template<class... T> static void info(const char*, T...) {} };
+}
+template<class T> struct GSResult { bool isSuccess() const { return true; } };
+int stops=0, reconnects=0, handled=0;
+void LiStopConnection() { ++stops; }
+struct MoonlightSession {
+    bool m_stop_requested=false, m_disconnect_pending=false;
+    bool m_is_active=true, m_is_terminated=false, m_is_sunshine=true;
+    static void connection_terminated(int);
+    static void handle_connection_terminated(int) { ++handled; }
+    template<class T> void start(T, bool) { ++reconnects; }
+};
+MoonlightSession session;
+MoonlightSession* m_active_session=&session;
+std::atomic<uint64_t> m_session_generation{1};
+''' + termination + r'''
+int main() {
+    MoonlightSession::connection_terminated(-1);
+    assert(stops==0 && reconnects==0 && handled==0);
+    assert(brls::queue.size()==1);
+    auto event=brls::queue.back(); brls::queue.clear();
+    ++m_session_generation; // destroyed/replaced before queued work is delivered
+    event(); assert(handled==0);
+    MoonlightSession::connection_terminated(-1);
+    assert(handled==0 && brls::queue.size()==1);
+    event=brls::queue.back(); brls::queue.clear();
+    event(); assert(handled==1);
+}
+''')
+
     def test_startup_guard_lasts_until_main_thread_completion(self):
         start = function('app/src/streaming/MoonlightSession.cpp', 'void MoonlightSession::start(')
         prefix = start[start.index('{') + 1:start.index('    m_is_sunshine')]

@@ -53,6 +53,7 @@ class MoonlightSession {
     static void connection_stage_failed(int, int);
     static void connection_started();
     static void connection_terminated(int);
+    static void handle_connection_terminated(int);
     static void connection_log_message(const char* format, ...);
     static void connection_rumble(unsigned short, unsigned short,
                                   unsigned short);

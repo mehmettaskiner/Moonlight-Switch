@@ -14,6 +14,9 @@ using namespace brls;
 
 int m_video_format;
 static MoonlightSession* m_active_session = nullptr;
+#ifdef __SWITCH__
+static std::atomic<uint64_t> m_session_generation{0};
+#endif
 static MoonlightSessionDecoderAndRenderProvider* m_provider = nullptr;
 
 
@@ -29,6 +32,9 @@ void MoonlightSession::set_provider(
 MoonlightSession::MoonlightSession(const std::string& address, int app_id) {
     m_address = address;
     m_app_id = app_id;
+#ifdef __SWITCH__
+    ++m_session_generation;
+#endif
     m_active_session = this;
 
     m_video_decoder = m_provider->video_decoder();
@@ -37,6 +43,9 @@ MoonlightSession::MoonlightSession(const std::string& address, int app_id) {
 }
 
 MoonlightSession::~MoonlightSession() {
+#ifdef __SWITCH__
+    ++m_session_generation;
+#endif
     if (m_video_decoder) {
         delete m_video_decoder;
     }
@@ -89,6 +98,21 @@ void MoonlightSession::connection_started() {
 }
 
 void MoonlightSession::connection_terminated(int error_code) {
+#ifdef __SWITCH__
+    // The library invokes this on a detached thread. Serialize reconnect with
+    // UI teardown and discard events queued for a destroyed/replaced session.
+    const auto generation = m_session_generation.load();
+    brls::sync([generation, error_code]() {
+        if (generation != m_session_generation.load())
+            return;
+        handle_connection_terminated(error_code);
+    });
+#else
+    handle_connection_terminated(error_code);
+#endif
+}
+
+void MoonlightSession::handle_connection_terminated(int error_code) {
     brls::Logger::info("MoonlightSession: Connection terminated with code: {}", error_code);
 
     if (!m_active_session)
