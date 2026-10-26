@@ -80,6 +80,13 @@ StreamingView::StreamingView(const Host& host, const AppInfo& app) : host(host),
 
     session = new MoonlightSession(host.preferred_address(), app.app_id);
 
+#ifdef __SWITCH__
+    // Subscribe once per view, not onFocusGained (which also runs after overlays).
+    windowFocusSubscription =
+        Application::getWindowFocusChangedEvent()->subscribe(
+            [this](bool focused) { onWindowFocusChanged(focused); });
+#endif
+
 #ifdef PLATFORM_TVOS
         updatePreferredDisplayMode(true);
 #endif
@@ -284,6 +291,16 @@ void StreamingView::onFocusLost() {
 
 void StreamingView::draw(NVGcontext* vg, float x, float y, float width,
                          float height, Style style, FrameContext* ctx) {
+#ifdef __SWITCH__
+    if (pendingSuspendTerminate) {
+        // Dismissing from the focus callback would unsubscribe while Event::fire
+        // is iterating. On wake, stop before touching the old renderer state.
+        pendingSuspendTerminate = false;
+        terminate(false);
+        return;
+    }
+#endif
+
     if (session->is_terminated()) {
         terminate(false);
         return;
@@ -382,6 +399,19 @@ void StreamingView::removeKeyboard() {
     keyboard = nullptr;
     Application::giveFocus(this);
 }
+
+#ifdef __SWITCH__
+// Adapted from quadseven's Moonlight-Switch PR #318, including both lifetime fixes.
+void StreamingView::onWindowFocusChanged(bool focused) {
+    if (focused || terminated)
+        return;
+
+    Logger::info("StreamingView: focus lost, disconnect pending");
+    MoonlightInputManager::instance().setInputEnabled(false);
+    MoonlightInputManager::instance().dropInput();
+    pendingSuspendTerminate = true;
+}
+#endif
 
 void StreamingView::terminate(bool terminateApp) {
     if (terminated)
@@ -547,6 +577,9 @@ void StreamingView::onLayout() {
 }
 
 StreamingView::~StreamingView() {
+#ifdef __SWITCH__
+    Application::getWindowFocusChangedEvent()->unsubscribe(windowFocusSubscription);
+#endif
 #ifdef PLATFORM_TVOS
     updatePreferredDisplayMode(false);
 #endif

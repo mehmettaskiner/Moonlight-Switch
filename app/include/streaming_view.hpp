@@ -52,6 +52,13 @@ class StreamingView : public brls::Box {
     bool m_use_hdr = false;
     TwoFingerScrollGestureRecognizer* scrollTouchRecognizer = nullptr;
 
+#ifdef __SWITCH__
+    void onWindowFocusChanged(bool focused);
+    brls::Event<bool>::Subscription windowFocusSubscription;
+    // Defer teardown until draw(), outside the event callback iteration.
+    bool pendingSuspendTerminate = false;
+#endif
+
     void handleInput();
     void handleOverlayCombo();
     void handleMouseInputCombo();
