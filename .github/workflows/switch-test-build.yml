@@ -1,0 +1,68 @@
+name: Switch sleep-resume test build
+
+on:
+  push:
+    branches: [master, fix/switch-sleep-resume, chore/merge-sleep-resume]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression-tests:
+    if: github.repository == 'mehmettaskiner/Moonlight-Switch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Run production-code host harness under ASan and UBSan
+        run: python3 -m unittest discover -s tests -v
+
+  switch-build:
+    if: github.repository == 'mehmettaskiner/Moonlight-Switch'
+    needs: regression-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    container:
+      image: devkitpro/devkita64@sha256:1fc388c3a0d34bd2045a6dadcb1020e069d5f876a187fd705de14b4440c00282
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Fetch pinned Switch dependencies
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git submodule update --init --recursive --depth 1 extern/borealis extern/moonlight-common-c extern/CImg extern/mdns
+      - name: Prepare Switch build
+        run: |
+          rm -rf resources/font
+          if dkp-pacman -Q switch-enet; then
+            dkp-pacman --noconfirm -R switch-enet
+          fi
+      - name: Configure
+        run: |
+          # Upstream requires a second configure pass for generated dependencies.
+          cmake -B build/switch -DCMAKE_BUILD_TYPE=Release -DPLATFORM_SWITCH=ON -DUSE_DEKO3D=ON || cmake -B build/switch -DCMAKE_BUILD_TYPE=Release -DPLATFORM_SWITCH=ON -DUSE_DEKO3D=ON
+      - name: Build NRO and preserve debug ELF
+        run: cmake --build build/switch --target Moonlight.nro --parallel 4
+      - name: Package test artifacts with provenance
+        run: |
+          mkdir -p dist
+          cp build/switch/Moonlight.nro dist/Moonlight-Switch-sleep-resume-test.nro
+          cp build/switch/Moonlight.elf dist/Moonlight-Switch-sleep-resume-test.elf
+          cp docs/switch-sleep-resume-testing.md dist/README.md
+          git rev-parse HEAD > dist/SOURCE_COMMIT.txt
+          git submodule status --recursive > dist/SUBMODULES.txt
+          dkp-pacman -Q > dist/TOOLCHAIN.txt
+          printf '%s\n' 'devkitpro/devkita64@sha256:1fc388c3a0d34bd2045a6dadcb1020e069d5f876a187fd705de14b4440c00282' > dist/BUILD_IMAGE.txt
+          cd dist
+          sha256sum *.nro *.elf > SHA256SUMS
+      - name: Upload test build (no release or PR)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Moonlight-Switch-sleep-resume-test
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30

@@ -3,6 +3,8 @@
 #include "GameStreamClient.hpp"
 #include "MoonlightSessionDecoderAndRenderProvider.hpp"
 #include <nanovg.h>
+#include <atomic>
+#include <optional>
 
 struct SessionStats {
     VideoDecodeStats video_decode_stats;
@@ -27,6 +29,10 @@ class MoonlightSession {
 
     void draw(NVGcontext* vg, int width, int height);
 
+    // Request only: the view waits for startup before calling stop()/deleting us.
+    void request_disconnect() { m_disconnect_pending = true; }
+    bool is_starting() const { return m_start_in_progress; }
+
     bool is_active() const { return m_is_active; }
     bool is_terminated() const { return m_is_terminated; }
 
@@ -48,6 +54,7 @@ class MoonlightSession {
     static void connection_stage_failed(int, int);
     static void connection_started();
     static void connection_terminated(int);
+    static void handle_connection_terminated(int);
     static void connection_log_message(const char* format, ...);
     static void connection_rumble(unsigned short, unsigned short,
                                   unsigned short);
@@ -84,6 +91,9 @@ class MoonlightSession {
     bool m_is_active = false;
     bool m_is_terminated = false;
     bool m_stop_requested = false;
+    std::atomic<bool> m_disconnect_pending{false};
+    std::atomic<bool> m_start_in_progress{false};
+    std::optional<int> m_deferred_termination; // UI-thread only on Switch
     bool m_connection_status_is_poor = false;
     bool m_use_hdr = false;
 

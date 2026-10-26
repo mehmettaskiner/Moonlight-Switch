@@ -82,6 +82,13 @@ StreamingView::StreamingView(const Host& host, const AppInfo& app) : host(host),
 
     session = new MoonlightSession(host.preferred_address(), app.app_id);
 
+#ifdef __SWITCH__
+    // Subscribe once per view, not onFocusGained (which also runs after overlays).
+    windowFocusSubscription =
+        Application::getWindowFocusChangedEvent()->subscribe(
+            [this](bool focused) { onWindowFocusChanged(focused); });
+#endif
+
 #ifdef PLATFORM_TVOS
         updatePreferredDisplayMode(true);
 #endif
@@ -90,6 +97,11 @@ StreamingView::StreamingView(const Host& host, const AppInfo& app) : host(host),
     GameStreamClient::instance().connect(
         host, [ASYNC_TOKEN](GSResult<SERVER_DATA> result) {
             ASYNC_RELEASE
+#ifdef __SWITCH__
+            hostConnectionPending = false;
+            if (pendingSuspendTerminate)
+                return; // draw() will disconnect; do not launch after HOME/sleep.
+#endif
             if (!result.isSuccess()) {
                 showError(result.error(), [this]() { terminate(false); });
                 return;
@@ -101,6 +113,10 @@ StreamingView::StreamingView(const Host& host, const AppInfo& app) : host(host),
             ASYNC_RETAIN
             session->start([ASYNC_TOKEN](GSResult<bool> result) {
                 ASYNC_RELEASE
+#ifdef __SWITCH__
+                if (pendingSuspendTerminate)
+                    return;
+#endif
 
                 loader->setHidden(true);
                 if (!result.isSuccess()) {
@@ -286,6 +302,19 @@ void StreamingView::onFocusLost() {
 
 void StreamingView::draw(NVGcontext* vg, float x, float y, float width,
                          float height, Style style, FrameContext* ctx) {
+#ifdef __SWITCH__
+    if (pendingSuspendTerminate) {
+        // Keep session callbacks alive until HTTP/connection startup has settled.
+        if (hostConnectionPending || session->is_starting())
+            return;
+        // Dismissing from the focus callback would unsubscribe while Event::fire
+        // is iterating. On wake, stop before touching the old renderer state.
+        pendingSuspendTerminate = false;
+        terminate(false);
+        return;
+    }
+#endif
+
     if (session->is_terminated()) {
         terminate(false);
         return;
@@ -420,6 +449,20 @@ void StreamingView::removeKeyboard() {
     keyboard = nullptr;
     Application::giveFocus(this);
 }
+
+#ifdef __SWITCH__
+// Adapted from quadseven's Moonlight-Switch PR #318, including both lifetime fixes.
+void StreamingView::onWindowFocusChanged(bool focused) {
+    if (focused || terminated)
+        return;
+
+    Logger::info("StreamingView: focus lost, disconnect pending");
+    MoonlightInputManager::instance().setInputEnabled(false);
+    MoonlightInputManager::instance().dropInput();
+    session->request_disconnect();
+    pendingSuspendTerminate = true;
+}
+#endif
 
 void StreamingView::terminate(bool terminateApp) {
     if (terminated)
@@ -585,6 +628,9 @@ void StreamingView::onLayout() {
 }
 
 StreamingView::~StreamingView() {
+#ifdef __SWITCH__
+    Application::getWindowFocusChangedEvent()->unsubscribe(windowFocusSubscription);
+#endif
 #ifdef PLATFORM_TVOS
     updatePreferredDisplayMode(false);
 #endif
