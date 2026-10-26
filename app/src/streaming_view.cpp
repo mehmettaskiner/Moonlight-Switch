@@ -95,6 +95,11 @@ StreamingView::StreamingView(const Host& host, const AppInfo& app) : host(host),
     GameStreamClient::instance().connect(
         host, [ASYNC_TOKEN](GSResult<SERVER_DATA> result) {
             ASYNC_RELEASE
+#ifdef __SWITCH__
+            hostConnectionPending = false;
+            if (pendingSuspendTerminate)
+                return; // draw() will disconnect; do not launch after HOME/sleep.
+#endif
             if (!result.isSuccess()) {
                 showError(result.error(), [this]() { terminate(false); });
                 return;
@@ -106,6 +111,10 @@ StreamingView::StreamingView(const Host& host, const AppInfo& app) : host(host),
             ASYNC_RETAIN
             session->start([ASYNC_TOKEN](GSResult<bool> result) {
                 ASYNC_RELEASE
+#ifdef __SWITCH__
+                if (pendingSuspendTerminate)
+                    return;
+#endif
 
                 loader->setHidden(true);
                 if (!result.isSuccess()) {
@@ -293,6 +302,9 @@ void StreamingView::draw(NVGcontext* vg, float x, float y, float width,
                          float height, Style style, FrameContext* ctx) {
 #ifdef __SWITCH__
     if (pendingSuspendTerminate) {
+        // Keep session callbacks alive until HTTP/connection startup has settled.
+        if (hostConnectionPending || session->is_starting())
+            return;
         // Dismissing from the focus callback would unsubscribe while Event::fire
         // is iterating. On wake, stop before touching the old renderer state.
         pendingSuspendTerminate = false;
@@ -409,6 +421,7 @@ void StreamingView::onWindowFocusChanged(bool focused) {
     Logger::info("StreamingView: focus lost, disconnect pending");
     MoonlightInputManager::instance().setInputEnabled(false);
     MoonlightInputManager::instance().dropInput();
+    session->request_disconnect();
     pendingSuspendTerminate = true;
 }
 #endif

@@ -94,7 +94,7 @@ void MoonlightSession::connection_terminated(int error_code) {
     if (!m_active_session)
         return;
 
-    if (m_active_session->m_stop_requested) {
+    if (m_active_session->m_stop_requested || m_active_session->m_disconnect_pending) {
         brls::Logger::info("MoonlightSession: Termination acknowledged after stop request");
         m_active_session->m_is_active = false;
         m_active_session->m_is_terminated = true;
@@ -245,6 +245,23 @@ void MoonlightSession::audio_renderer_decode_and_play_sample(
 // MARK: MoonlightSession
 
 void MoonlightSession::start(ServerCallback<bool> callback, bool is_sunshine) {
+#ifdef __SWITCH__
+    if (m_disconnect_pending) {
+        callback(GSResult<bool>::failure("Stream disconnect pending"));
+        return;
+    }
+    m_start_in_progress = true;
+    // LiStartConnection finishes on a worker. Release the startup guard and
+    // deliver the view callback together on the UI thread, before any teardown.
+    auto completeStart = [this, callback](GSResult<bool> result) {
+        brls::sync([this, callback, result]() {
+            m_start_in_progress = false;
+            callback(result);
+        });
+    };
+#else
+    auto completeStart = callback;
+#endif
     m_is_sunshine = is_sunshine;
     m_stop_requested = false;
     m_is_terminated = false;
@@ -337,10 +354,10 @@ void MoonlightSession::start(ServerCallback<bool> callback, bool is_sunshine) {
     }
 
     GameStreamClient::instance().start(
-        m_address, m_config, m_app_id, [this, callback](auto result) {
+        m_address, m_config, m_app_id, [this, completeStart](auto result) {
             if (result.isSuccess()) {
                 m_config = result.value();
-                brls::async([this, callback]() mutable {
+                brls::async([this, completeStart]() mutable {
                     auto m_data =
                         GameStreamClient::instance().server_data(m_address);
 
@@ -350,17 +367,17 @@ void MoonlightSession::start(ServerCallback<bool> callback, bool is_sunshine) {
 
                     if (result != 0) {
                         LiStopConnection();
-                        callback(
+                        completeStart(
                             GSResult<bool>::failure("error/stream_start"_i18n));
                     } else {
-                        callback(GSResult<bool>::success(true));
+                        completeStart(GSResult<bool>::success(true));
                     }
                 });
             } else {
                 brls::Logger::error(
                     "MoonlightSession: Failed to start stream: {}",
                     result.error().c_str());
-                callback(GSResult<bool>::failure(result.error()));
+                completeStart(GSResult<bool>::failure(result.error()));
             }
         });
 }

@@ -57,6 +57,7 @@ class StreamingView : public brls::Box {
     brls::Event<bool>::Subscription windowFocusSubscription;
     // Defer teardown until draw(), outside the event callback iteration.
     bool pendingSuspendTerminate = false;
+    bool hostConnectionPending = true;
 #endif
 
     void handleInput();
