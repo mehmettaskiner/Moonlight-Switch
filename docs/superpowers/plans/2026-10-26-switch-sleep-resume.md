@@ -43,3 +43,5 @@ Files: .github/workflows/switch-test-build.yml, docs/switch-sleep-resume-testing
 ## Review follow-up
 
 Independent review found that PR #318's deferred stop could still destroy a session with startup callbacks pending. Before hardware testing, guard pending host connection and session start, deliver startup completion on the main thread, and suppress autoreconnect after disconnect request. This is necessary for HOME during loading, not an unrelated feature. The added host tests exercise deferred teardown and completion delivery; real delayed-network device testing remains pending.
+
+The same review found reconnect handling runs on a detached worker and can overlap startup/teardown. Queue it to the UI thread, reject queued events across session generations, and defer termination events until the current startup completion before reconnecting. Five regression tests pass locally under ASan/UBSan. Initial fork build 40308794978 succeeded; the final revision still needs its own successful Switch build and all hardware acceptance remains pending.

@@ -118,6 +118,14 @@ void MoonlightSession::handle_connection_terminated(int error_code) {
     if (!m_active_session)
         return;
 
+#ifdef __SWITCH__
+    // Network threads can report termination before LiStartConnection returns.
+    // Do not let a reconnect overlap that attempt or steal its startup guard.
+    if (m_active_session->m_start_in_progress) {
+        m_active_session->m_deferred_termination = error_code;
+        return;
+    }
+#endif
     if (m_active_session->m_stop_requested || m_active_session->m_disconnect_pending) {
         brls::Logger::info("MoonlightSession: Termination acknowledged after stop request");
         m_active_session->m_is_active = false;
@@ -280,6 +288,11 @@ void MoonlightSession::start(ServerCallback<bool> callback, bool is_sunshine) {
     auto completeStart = [this, callback](GSResult<bool> result) {
         brls::sync([this, callback, result]() {
             m_start_in_progress = false;
+            if (m_deferred_termination) {
+                const int error = *m_deferred_termination;
+                m_deferred_termination.reset();
+                connection_terminated(error); // queue after this completion
+            }
             callback(result);
         });
     };

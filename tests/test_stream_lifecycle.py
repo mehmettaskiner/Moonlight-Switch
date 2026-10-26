@@ -141,6 +141,41 @@ int main() {
 }
 ''')
 
+    def test_termination_during_startup_waits_before_reconnecting(self):
+        handler = function('app/src/streaming/MoonlightSession.cpp',
+                           'void MoonlightSession::handle_connection_terminated(int error_code)')
+        run_cpp(r'''
+#include <cassert>
+#include <optional>
+namespace brls { struct Logger { template<class... T> static void info(const char*, T...) {} }; }
+template<class T> struct GSResult { bool isSuccess() const { return true; } };
+int stops=0, reconnects=0;
+void LiStopConnection() { ++stops; }
+struct MoonlightSession {
+    bool m_stop_requested=false, m_disconnect_pending=false, m_start_in_progress=true;
+    bool m_is_active=true, m_is_terminated=false, m_is_sunshine=true;
+    std::optional<int> m_deferred_termination;
+    static void handle_connection_terminated(int);
+    template<class T> void start(T, bool) { ++reconnects; m_start_in_progress=true; }
+};
+MoonlightSession session;
+MoonlightSession* m_active_session=&session;
+''' + handler + r'''
+int main() {
+    MoonlightSession::handle_connection_terminated(-1);
+    assert(stops==0 && reconnects==0);
+    assert(session.m_deferred_termination== -1);
+    session.m_start_in_progress=false;
+    auto error=*session.m_deferred_termination; session.m_deferred_termination.reset();
+    MoonlightSession::handle_connection_terminated(error);
+    assert(stops==1 && reconnects==1 && session.m_start_in_progress);
+    session.m_start_in_progress=false;
+    session.m_disconnect_pending=true;
+    MoonlightSession::handle_connection_terminated(-1);
+    assert(stops==1 && reconnects==1 && session.m_is_terminated);
+}
+''')
+
     def test_startup_guard_lasts_until_main_thread_completion(self):
         start = function('app/src/streaming/MoonlightSession.cpp', 'void MoonlightSession::start(')
         prefix = start[start.index('{') + 1:start.index('    m_is_sunshine')]
@@ -149,6 +184,7 @@ int main() {
 #include <cassert>
 #include <functional>
 #include <vector>
+#include <optional>
 template<class T> struct GSResult {
     bool ok;
     static GSResult failure(const char*) { return {false}; }
@@ -161,6 +197,9 @@ namespace brls {
 struct MoonlightSession {
     std::atomic<bool> m_disconnect_pending{false}, m_start_in_progress{false};
     std::function<void(GSResult<bool>)> workerCompletion;
+    std::optional<int> m_deferred_termination;
+    inline static int replayed=0;
+    static void connection_terminated(int error) { assert(error==-7); ++replayed; }
     void start(ServerCallback<bool> callback, bool is_sunshine);
 };
 void MoonlightSession::start(ServerCallback<bool> callback, bool is_sunshine) {
@@ -177,10 +216,13 @@ int main() {
         }, true);
         assert(session.m_start_in_progress && calls==0);
         session.m_disconnect_pending=true;
+        session.m_deferred_termination=-7;
+        const int previousReplays=MoonlightSession::replayed;
         session.workerCompletion({success});
         assert(session.m_start_in_progress && calls==0);
         auto finish=brls::queue.back(); brls::queue.clear(); finish();
         assert(!session.m_start_in_progress && calls==1);
+        assert(!session.m_deferred_termination && MoonlightSession::replayed==previousReplays+1);
     }
     MoonlightSession stopped; stopped.m_disconnect_pending=true;
     int failures=0;

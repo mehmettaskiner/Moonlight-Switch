@@ -26,4 +26,8 @@ Record the source commit, game, each action, requested and actual host resolutio
 
 ## Automated coverage and limits
 
-Run `python3 -m unittest discover -s tests -v`. Host harnesses compile actual production function bodies against recording transport/input boundaries, under ASan/UBSan. They cover queued teardown before rendering and request parameters across launch/resume, resolutions, optimization policies and FPS. They do not simulate the Switch OS, GPU, actual callback subscription lifetime, or network/service behavior during sleep. The Switch build checks SDK integration; hardware acceptance is still necessary.
+Run `python3 -m unittest discover -s tests -v`. Host harnesses compile actual production function bodies against recording transport/input boundaries, under ASan/UBSan. Five tests cover queued teardown before rendering, waiting for initial connection/startup, main-thread startup completion, serialized reconnect handling (including termination during startup), queued-event invalidation after session replacement, and request parameters across launch/resume, resolutions, optimization policies and FPS. They do not simulate the Switch OS, GPU, actual callback subscription lifetime, or network/service behavior during sleep. The Switch build checks SDK integration; hardware acceptance is still necessary.
+
+## Known upstream limits
+
+This remains a hardware-unverified test build. The generation check discards termination work queued before a session is destroyed or replaced. The upstream global callback API does not identify the originating session; an old detached callback that first executes after replacement cannot be identified by that check. This is a pre-existing limitation. Manual quitting during startup and unrelated decoder/GPU behavior are not established fixed by these tests.

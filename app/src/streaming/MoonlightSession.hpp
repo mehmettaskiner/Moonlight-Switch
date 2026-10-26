@@ -4,6 +4,7 @@
 #include "MoonlightSessionDecoderAndRenderProvider.hpp"
 #include <nanovg.h>
 #include <atomic>
+#include <optional>
 
 struct SessionStats {
     VideoDecodeStats video_decode_stats;
@@ -92,6 +93,7 @@ class MoonlightSession {
     bool m_stop_requested = false;
     std::atomic<bool> m_disconnect_pending{false};
     std::atomic<bool> m_start_in_progress{false};
+    std::optional<int> m_deferred_termination; // UI-thread only on Switch
     bool m_connection_status_is_poor = false;
     bool m_use_hdr = false;
 
