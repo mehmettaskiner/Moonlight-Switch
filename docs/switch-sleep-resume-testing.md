@@ -1,6 +1,6 @@
 # Moonlight Switch sleep/resume test build
 
-Based on [XITRIX v1.5.0](https://github.com/XITRIX/Moonlight-Switch/tree/v1.5.0). This is a test build, not a verified sleep-crash fix.
+The fixes were developed on [XITRIX v1.5.0](https://github.com/XITRIX/Moonlight-Switch/tree/v1.5.0), then merged with the fork's newer [master base](https://github.com/mehmettaskiner/Moonlight-Switch/commit/a75fee2). The merged build requires separate device acceptance; it is not the same binary currently installed on the Switch.
 
 Changes:
 - Switch window focus loss disables input and defers stream-only teardown until the next draw, before renderer access. Adapted from [quadseven's PR #318](https://github.com/XITRIX/Moonlight-Switch/pull/318), including its deferred teardown and single-subscription fixes.
@@ -12,7 +12,11 @@ Before replacement, copy the currently installed NRO and its configuration direc
 
 No automatic installation, system module, or Sunshine setting change is part of this build. The fork workflow has read-only repository permissions and uploads temporary Actions artifacts; it creates no release or PR.
 
-## Device acceptance (pending)
+## Device acceptance
+
+The [v1.5.0-based build](https://github.com/mehmettaskiner/Moonlight-Switch/commit/436f3dd14ce3d9285dc323e4950880e241bbfe04) passed user tests of Power/sleep and reconnect with Black Flag and bbhost Bloodborne, preserving the running game and restoring audio and 1080p. Stardew also passed two cycles with a separate host-side Sunshine audio fix. These results do not establish HOME-button, overnight-sleep, or newer merged-build behavior. Merging source does not replace the installed NRO.
+
+Checklist for the merged build:
 
 1. Enable the client's Optimize game settings option when testing Sunshine display-mode changes; the patch preserves that preference rather than forcing it on. Fresh launch Steam Big Picture at the configured 1920x1080 resolution. Confirm audio, controller input, and video.
 2. Start Stardew, pause it, press HOME, return to Moonlight. Expect stream disconnect; the PC game remains running. Reconnect to the existing host session and confirm 1080p plus the same game state.
@@ -30,4 +34,4 @@ Run `python3 -m unittest discover -s tests -v`. Host harnesses compile actual pr
 
 ## Known upstream limits
 
-This remains a hardware-unverified test build. The generation check discards termination work queued before a session is destroyed or replaced. The upstream global callback API does not identify the originating session; an old detached callback that first executes after replacement cannot be identified by that check. This is a pre-existing limitation. Manual quitting during startup and unrelated decoder/GPU behavior are not established fixed by these tests.
+The newer merged build remains hardware-unverified. The generation check discards termination work queued before a session is destroyed or replaced. The upstream global callback API does not identify the originating session; an old detached callback that first executes after replacement cannot be identified by that check. This is a pre-existing limitation. Manual quitting during startup and unrelated decoder/GPU behavior are not established fixed by these tests.
